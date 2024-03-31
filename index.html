@@ -1,6 +1,10 @@
 <!doctype html>
 <html>
   <head>
+      <link
+        rel="stylesheet"
+        href="https://fred-wang.github.io/MathFonts/LatinModern/mathfonts.css" />
+      <script src="https://fred-wang.github.io/mathjax.js/mpadded-min.js"></script>
       <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
       <style>
           textarea {
@@ -13,72 +17,76 @@
     Open your browser console to see Pyodide output
  	  <textarea id="textarea_input" rows="10" placeholder="Once upon a time..."></textarea>
     <br>
+    <button id="btn_pde">calculus on sympy</button>
     <button id="btn_submit">Submit</button>
     <br>
     <div id="console_output"></div>
     <script type="text/javascript">
-      const code = `# Alternative way how can complex no can initialize
-# importing "cmath" for complex number operations
-import cmath
-
-# Initializing complex number
-z = 5+3j
-# Print the parts of Complex No.
-print("The real part of complex number is : ", end="")
-print(z.real)
-
-print("The imaginary part of complex number is : ", end="")
-print(z.imag)
-
-print(cmath.phase(z))
-
-
-
-w = cmath.polar(z)
- 
-# printing modulus and argument of polar complex number
-print ("The modulus and argument of polar complex number is : ",end="")
-print (w)
- 
-# converting complex number into rectangular using rect()
-w = cmath.rect(1.4142135623730951, 0.7853981633974483)
- 
-# printing rectangular form of complex number
-print ("The rectangular form of complex number is : ",end="")
-print (w)
+      const worker = new Worker('worker.js');
+      worker.onmessage = function(e) {
+        consoleOutput.innerHTML += `${e.data}<br>`;
+      }
+      
+      const code = `import scipy.integrate as integrate
+import scipy.special as special
+print(integrate.quad(lambda x: special.jv(2.5,x), 0, 4.5))
 `;
         const consoleOutput = document.getElementById("console_output");
      	  const textareaInput = document.getElementById("textarea_input");
         textareaInput.value = code;
       
-        const getPyodidePromise = (() => {
-        	let pyodide;
-            
-            return () => new Promise(res => {
-            	if (!!pyodide) {
-                	console.log("already");
-                	res(pyodide);
-                } else {
-                  loadPyodide({
-                    fullStdLib: true,
-                    stdout: msg => consoleOutput.innerHTML += `${msg}<br>`,
-                  })
-                  .then(_pyodide => {
-                    console.log(`just now ${!!pyodide ? "overriding..." : "new"}`);
-                    pyodide = _pyodide;
-                    res(pyodide);
-                  })
-                }
-            })
-        })();
-        
         document.getElementById("btn_submit").addEventListener("click", function() {
             consoleOutput.innerHTML = "";
-        	  getPyodidePromise()
-            .then(pyodide => {
-              pyodide.runPython(textareaInput.value);
-            })
+            worker.postMessage([textareaInput.value]);
         });
+
+        document.getElementById("btn_pde").addEventListener("click", function() {
+           textareaInput.value = `from sympy import *
+init_printing()
+import matplotlib
+import numpy as np
+matplotlib.use("module://matplotlib_pyodide.html5_canvas_backend")
+import matplotlib.cm as cm
+from matplotlib import pyplot as plt
+
+x, y, dx, dy = symbols('x, y, dx, dy')
+
+# sympy.diff auto get PDE / ODE based on whether the input function is multivariable
+
+# PDE
+print(diff(x**3 * y**5, x))
+print(diff(x**3 * y**5, y))
+
+# ODE
+print(diff(-x**2 + 2 *x + 5, x))
+
+# Total Differential / Exact differential / Full differential (same thing)
+f = 5*x**3-4*x*y+2*y**2
+print(diff(f, x) * dx + diff(f, y) * dy) #dx*(15*x**2 - 4*y) + dy*(-4*x + 4*y)
+
+
+# testing
+delta = 0.025
+x = y = np.arange(-3.0, 3.0, delta)
+X, Y = np.meshgrid(x, y)
+Z1 = np.exp(-(X**2) - Y**2)
+Z2 = np.exp(-((X - 1) ** 2) - (Y - 1) ** 2)
+Z = (Z1 - Z2) * 2
+plt.figure()
+plt.imshow(
+Z,
+interpolation="bilinear",
+cmap=cm.RdYlGn,
+origin="lower",
+extent=[-3, 3, -3, 3],
+vmax=abs(Z).max(),
+vmin=-abs(Z).max(),
+)
+plt.show()
+`;
+        });
+
+            
     </script>
   </body>
 </html>
