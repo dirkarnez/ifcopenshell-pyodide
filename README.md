@@ -2,3 +2,6 @@
 ===================================================================================
 - https://ifcopenshell.github.io/wasm-preview/
 - https://blenderbim.org/docs-python/ifcopenshell-python/installation.html#web-assembly
+
+### Notes
+- `python obj2ifc.py cubus.obj`
