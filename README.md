@@ -1,6 +1,7 @@
 [ifcopenshell-pyodide](https://dirkarnez.github.io/ifcopenshell-pyodide/)
-===================================================================================
-- https://ifcopenshell.github.io/wasm-preview/
+=========================================================================
+- [IfcOpenShell/wasm-preview](https://github.com/IfcOpenShell/wasm-preview)
+  - https://ifcopenshell.github.io/wasm-preview/
 - https://blenderbim.org/docs-python/ifcopenshell-python/installation.html#web-assembly
 
 ### Notes
