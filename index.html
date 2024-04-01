@@ -1,92 +1,271 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
   <head>
-      <link
-        rel="stylesheet"
-        href="https://fred-wang.github.io/MathFonts/LatinModern/mathfonts.css" />
-      <script src="https://fred-wang.github.io/mathjax.js/mpadded-min.js"></script>
-      <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
-      <style>
-          textarea {
-              width: 100%;
-          }
-      </style>
-  </head>
-  <body>
-    Pyodide test page <br>
-    Open your browser console to see Pyodide output
- 	  <textarea id="textarea_input" rows="10" placeholder="Once upon a time..."></textarea>
-    <br>
-    <button id="btn_pde">calculus on sympy</button>
-    <button id="btn_submit">Submit</button>
-    <br>
-    <div id="console_output"></div>
-    <script type="text/javascript">
-      const worker = new Worker('worker.js');
-      worker.onmessage = function(e) {
-        consoleOutput.innerHTML += `${e.data}<br>`;
+    <meta charset="utf-8" />
+    <style>
+      html, body {
+        padding: 0;
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        text-align: center;
       }
+      body {
+        padding-top: 25vh;
+      }
+      body.rendering {
+        padding-top: 0;
+      }
+      .msg {
+        display: none;
+      }
+      body.loading .msg {
+        display: block;
+      }
+      form {
+        display: inline-block;
+        padding: 1vw 5vw;
+        border: solid 1px #eee;
+        border-radius: 1vw;
+      }
+      form div {
+        margin-bottom: 3vw;
+      }
+      body.loading form,
+      body.rendering form {
+        display: none;
+      }
+      canvas {
+        display: none;
+      }
+      body.rendering canvas {
+        display: block;
+      }
+      #status1 {
+        font-size: 150%;
+        font-weight: bold;
+      }
+      #branding {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        text-align: right;
+      }
+      input[type='button'] {
+        padding: 8px 64px;
+        margin-top: 3vw;
+      }
+    </style>
+  </head>
+  <body class='loading'>
+    <div id='branding'>
+      <img src='https://upload.wikimedia.org/wikipedia/commons/1/1f/WebAssembly_Logo.svg' height='64' width='auto'>
+      <br>
+      <b>IfcOpenShell</b> WebAssembly
+    </div>
+    <div class='msg'>
+      <div id='status1'>Loading...</div>
+      <div id='status2'></div>
+    </div>
+    <form action='#' onsubmit="return false;">
+      <div>Client-side model viewer</div>
+      <input type='file' id='fileinput'><br>
+      <input type='button' id='btn' value='Load'>
+    </form>
+    <script type="text/javascript">document.querySelector("#status2").innerHTML = "Fetching pyodide";</script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/pyodide/v0.22.0a1/full/pyodide.js"></script>
+    <script async src="https://unpkg.com/es-module-shims@1.3.6/dist/es-module-shims.js"></script>
+    <script type="importmap">
+      {"imports": {"three": "https://unpkg.com/three@0.141.0/build/three.module.js",
+                   "OrbitControls": "https://unpkg.com/three@0.141.0/examples/jsm/controls/OrbitControls.js"}}
+    </script>
+    <script type="module">
+      import * as THREE from 'three';
+      import { OrbitControls } from 'OrbitControls';
       
-      const code = `import scipy.integrate as integrate
-import scipy.special as special
-print(integrate.quad(lambda x: special.jv(2.5,x), 0, 4.5))
-`;
-        const consoleOutput = document.getElementById("console_output");
-     	  const textareaInput = document.getElementById("textarea_input");
-        textareaInput.value = code;
+      THREE.Object3D.DefaultUp = new THREE.Vector3(0,0,1);
       
-        document.getElementById("btn_submit").addEventListener("click", function() {
-            consoleOutput.innerHTML = "";
-            worker.postMessage([textareaInput.value]);
-        });
+      let pyodide = null;
 
-        document.getElementById("btn_pde").addEventListener("click", function() {
-           textareaInput.value = `from sympy import *
-init_printing()
-import matplotlib
-import numpy as np
-matplotlib.use("module://matplotlib_pyodide.html5_canvas_backend")
-import matplotlib.cm as cm
-from matplotlib import pyplot as plt
+      async function main() {
+        document.querySelector("#status2").innerHTML = "Initializing pyodide";
+        pyodide = await loadPyodide();
+        document.querySelector("#status2").innerHTML = "Loading package manager";
+        await pyodide.loadPackage("micropip");
+        const micropip = pyodide.pyimport("micropip");
+        document.querySelector("#status2").innerHTML = "Loading IfcOpenShell (this may take a while)";
+        await micropip.install("IfcOpenShell-0.7.0-py3-none-any.whl");
+        console.log(await pyodide.runPython(`
+            import ifcopenshell
+            ifcopenshell.version`));
 
-x, y, dx, dy = symbols('x, y, dx, dy')
+        document.body.className = ''
+        
+        document.querySelector("input[type=button]").onclick = async () => {  
+          document.body.className = 'loading'
+          document.querySelector("#status2").innerHTML = "Generating geometry";
+        
+          let file = document.querySelector("input").files[0];
+          let content = await file.text();
+          let ifcopenshell = pyodide.pyimport('ifcopenshell')
+          let ifc = ifcopenshell.file.from_string(content);
+          
+          let ifcopenshell_geom = pyodide.pyimport('ifcopenshell.geom');
+          let s = ifcopenshell_geom.settings();
+          s.set(s.WELD_VERTICES, false);
+          /*
+          let it = ifcopenshell_geom.iterator.callKwargs({
+            'settings': s,
+            'file_or_filename': ifc,
+            'num_threads': 8});
+            'exclude':['IfcSpace', 'IfcOpeningElement']});
+          */
+          let it = ifcopenshell_geom.iterator(s, ifc);
+          
+          let last_mesh_id = null;
+          let geometries;
+          
+          const renderer = new THREE.WebGLRenderer();
+          renderer.setSize( window.innerWidth, window.innerHeight );
+          document.body.appendChild( renderer.domElement );
+          
+          renderer.setClearColor(0x000000, 0);
+          const scene = new THREE.Scene();
 
-# sympy.diff auto get PDE / ODE based on whether the input function is multivariable
+          var light = new THREE.DirectionalLight(0xFFFFFF);
+          light.position.set(20, 10, 30);
+          scene.add(light);
+          var light = new THREE.DirectionalLight(0xFFFFFF, 0.8);
+          light.position.set(-10, 1, -30);
+          scene.add(light);
+          scene.add(new THREE.AmbientLight(0x404050));
 
-# PDE
-print(diff(x**3 * y**5, x))
-print(diff(x**3 * y**5, y))
+          const camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 1, 10000 );
 
-# ODE
-print(diff(-x**2 + 2 *x + 5, x))
+          const controls = new OrbitControls( camera, renderer.domElement );
+          
+          if (it.initialize()) {
+            while (true) {
+              let obj = it.get();
+              
+              // obj.type appears to be overwritten by pyodide, returning the typename of the C++ class?
+              let ty = ifc.by_id(obj.id).is_a()
+              if (ty !== 'IfcOpeningElement' && ty !== 'IfcSpace') {
+                
+                if (last_mesh_id != obj.geometry.id) {
+                  geometries = [];
 
-# Total Differential / Exact differential / Full differential (same thing)
-f = 5*x**3-4*x*y+2*y**2
-print(diff(f, x) * dx + diff(f, y) * dy) #dx*(15*x**2 - 4*y) + dy*(-4*x + 4*y)
+                  let materials = obj.geometry.materials.toJs().map(e => new THREE.MeshLambertMaterial({
+                    color: new THREE.Color(...e.diffuse.toJs()),
+                    opacity: 1.0 - e.transparency,
+                    transparent: e.transparency > 1.e-5,
+                    side: THREE.DoubleSide
+                  }));
+                  
+                  let mapping = {};
+                  obj.geometry.material_ids.toJs().forEach((i, idx) => {
+                    mapping[i] = mapping[i] || []
+                    mapping[i].push(idx);
+                  });
+                  
+                  let vs = new Float32Array(obj.geometry.verts.toJs());
+                  let ns = new Float32Array(obj.geometry.normals.toJs());
+                  let fs = obj.geometry.faces.toJs();
+                  
+                  // Default material
+                  let offset = 0;
+                  if (mapping[-1]) {
+                    materials.unshift(new THREE.MeshLambertMaterial({
+                      color: new THREE.Color(0.6,0.6,0.6),
+                      side: THREE.DoubleSide
+                    }));
+                    offset = 1;
+                  }
+                  
+                  materials.forEach((m, mi) => {
+                    let geometry = new THREE.BufferGeometry();
+                  
+                    geometry.setIndex(mapping[mi - offset].flatMap(i => [fs[3*i+0], fs[3*i+1], fs[3*i+2]]));
+                    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vs, 3));
+                    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(ns, 3));
+                    
+                    geometries.push([geometry, m]);
+                  });
+                  
+                  last_mesh_id = obj.geometry.id;
+                }
+                
+                for (let gm of geometries) {
+                  let [g, mat] = gm;
+                  let mesh = new THREE.Mesh(g, mat);
+                  
+                  var matrix = new THREE.Matrix4();
+                  const m = obj.transformation.matrix.data.toJs();
+                  matrix.set(m[0], m[1], m[2], 0, m[3], m[4], m[5], 0, m[6], m[7], m[8], 0, m[9], m[10], m[11], 1);
+                  matrix.transpose();
+                  mesh.matrixAutoUpdate = false;
+                  mesh.matrix = matrix;              
+                  
+                  scene.add(mesh);
+                }
+                
+              }
+              
+              if (!it.next()) {
+                break;
+              }
+            }
+          }
+          document.body.className = 'rendering';
+          
+          var boundingBox = new THREE.Box3();
+          boundingBox.setFromObject(scene);
+          var center = new THREE.Vector3();
+          boundingBox.getCenter(center);
+          controls.target = center;
 
+          var viewDistance = boundingBox.getSize(new THREE.Vector3()).length();
+          camera.position.copy(center.clone().add(
+              new THREE.Vector3(0.5, 0.25, 1).normalize().multiplyScalar(viewDistance)
+          ));
+          
+          camera.near = viewDistance / 100;
+          camera.far = viewDistance * 100;
+          controls.update();
+          camera.updateProjectionMatrix();
+          camera.updateMatrixWorld();
+          
+          var fovFactor = Math.tan(camera.fov / 2 / 180 * 3.141592653);
+          var outside = 0.;
+          
+          var largestAngle = 0.;
+          for (var i = 0; i < 8; i++) {
+              const v = new THREE.Vector3(
+                  i & 1 ? boundingBox.min.x : boundingBox.max.x,
+                  i & 2 ? boundingBox.min.y : boundingBox.max.y,
+                  i & 4 ? boundingBox.min.z : boundingBox.max.z
+              );
+              v.applyMatrix4(camera.matrixWorldInverse);
+              outside = Math.max(outside, Math.abs(v.x / camera.aspect) - fovFactor * -v.z, Math.abs(v.y) - fovFactor * -v.z);
+          }
+          
+          viewDistance += outside * 2;
+          
+          camera.position.copy(center.clone().add(
+              new THREE.Vector3(0.5, 0.25, 1).normalize().multiplyScalar(viewDistance)
+          ));
 
-# testing
-delta = 0.025
-x = y = np.arange(-3.0, 3.0, delta)
-X, Y = np.meshgrid(x, y)
-Z1 = np.exp(-(X**2) - Y**2)
-Z2 = np.exp(-((X - 1) ** 2) - (Y - 1) ** 2)
-Z = (Z1 - Z2) * 2
-plt.figure()
-plt.imshow(
-Z,
-interpolation="bilinear",
-cmap=cm.RdYlGn,
-origin="lower",
-extent=[-3, 3, -3, 3],
-vmax=abs(Z).max(),
-vmin=-abs(Z).max(),
-)
-plt.show()
-`;
-        });
-
-            
+          controls.update();
+          
+          function render() {
+            requestAnimationFrame(render);
+            renderer.render(scene, camera);
+          }
+          
+          render();
+        }
+      }
+      main();
     </script>
   </body>
 </html>
